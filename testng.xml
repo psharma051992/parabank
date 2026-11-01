@@ -1,0 +1,8 @@
+<!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
+<suite name="ParaBank fund transfer" verbose="1">
+    <test name="Register, open account, transfer">
+        <classes>
+            <class name="com.fundtransfer.tests.FundTransferTest"/>
+        </classes>
+    </test>
+</suite>
