@@ -26,6 +26,10 @@ public class ActivityPage {
         wait.until(ExpectedConditions.visibilityOfElementLocated(By.cssSelector("#transactionTable tbody tr")));
     }
 
+    public String accountIdShown() {
+        return driver.findElement(By.id("accountId")).getText().trim();
+    }
+
     public List<String[]> rows() {
         List<String[]> rows = new ArrayList<>();
         for (WebElement row : driver.findElements(By.cssSelector("#transactionTable tbody tr"))) {

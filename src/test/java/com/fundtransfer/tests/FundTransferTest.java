@@ -17,6 +17,10 @@ import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,7 +30,9 @@ public class FundTransferTest {
 
     private static final Logger LOG = Logger.getLogger(FundTransferTest.class.getName());
     private static final int TRANSFER_AMOUNT = 50;
+    private static final Path ASSERTION_REPORT = Path.of("target", "surefire-reports", "assertions.html");
 
+    private final List<String[]> checks = new ArrayList<>();
     private WebDriver driver;
 
     @BeforeMethod
@@ -44,6 +50,7 @@ public class FundTransferTest {
 
     @AfterMethod(alwaysRun = true)
     public void closeBrowser() {
+        writeAssertionReport();
         if (driver != null) {
             driver.quit();
         }
@@ -63,7 +70,7 @@ public class FundTransferTest {
         ActivityPage activityPage = new ActivityPage(driver);
 
         registerPage.open();
-        Assert.assertTrue(registerPage.formIsOpen(), "register form should be open");
+        check("register form should be open", registerPage.formIsOpen());
 
         typeAndCheck(registerPage, "[id='customer.firstName']", customer.firstName);
         typeAndCheck(registerPage, "[id='customer.lastName']", customer.lastName);
@@ -86,69 +93,121 @@ public class FundTransferTest {
             typeAndCheck(registerPage, "#repeatedPassword", customer.password);
             registerPage.submit();
         }
-        Assert.assertEquals(registerPage.welcomeHeading(), "Welcome " + username);
-        Assert.assertTrue(
-                registerPage.panelText().contains("Your account was created successfully. You are now logged in."),
-                "registration should leave the customer logged in");
+        same("welcome heading", registerPage.welcomeHeading(), "Welcome " + username);
+        String success = "Your account was created successfully. You are now logged in.";
+        check("registration should leave the customer logged in", registerPage.panelText().contains(success));
 
         accountsPage.open();
         List<String> accountsAfterRegister = accountsPage.accountIds();
-        Assert.assertEquals(accountsAfterRegister.size(), 1, "a new customer gets one checking account");
+        same("a new customer gets one checking account", accountsAfterRegister.size(), 1);
         String checkingId = accountsAfterRegister.get(0);
 
         openAccountPage.open();
-        Assert.assertTrue(openAccountPage.formIsOpen(), "open-account form should be open");
+        check("open-account form should be open", openAccountPage.formIsOpen());
         openAccountPage.chooseSavingsFundedFrom(checkingId);
-        Assert.assertEquals(openAccountPage.selectedType(), "SAVINGS");
-        Assert.assertEquals(openAccountPage.selectedFromAccount(), checkingId);
+        same("account type", openAccountPage.selectedType(), "SAVINGS");
+        same("funded from account", openAccountPage.selectedFromAccount(), checkingId);
         openAccountPage.submit();
         String savingsId = openAccountPage.newAccountId();
-        Assert.assertNotEquals(savingsId, checkingId);
-        Assert.assertEquals(openAccountPage.resultHeading(), "Account Opened!");
+        check("new account id should be shown", !savingsId.isEmpty());
+        different("new savings account is not the checking account", savingsId, checkingId);
+        same("open account heading", openAccountPage.resultHeading(), "Account Opened!");
 
         accountsPage.open();
         List<String> accountsBeforeTransfer = accountsPage.accountIds();
-        Assert.assertTrue(accountsBeforeTransfer.contains(checkingId), "checking account should still be listed");
-        Assert.assertTrue(accountsBeforeTransfer.contains(savingsId), "new savings account should be listed");
+        check("checking account should still be listed", accountsBeforeTransfer.contains(checkingId));
+        check("new savings account should be listed", accountsBeforeTransfer.contains(savingsId));
         double checkingBefore = accountsPage.balanceOf(checkingId);
         double savingsBefore = accountsPage.balanceOf(savingsId);
         logBalances("before", checkingId, checkingBefore, savingsId, savingsBefore);
-        Assert.assertTrue(checkingBefore > TRANSFER_AMOUNT, "checking account should cover the transfer");
+        check("checking account should cover the transfer", checkingBefore > TRANSFER_AMOUNT);
+        check("new savings account should have a balance before the transfer", savingsBefore > 0);
 
         transferPage.open();
-        Assert.assertTrue(transferPage.formIsOpen(), "transfer form should be open");
+        check("transfer form should be open", transferPage.formIsOpen());
         transferPage.enterAmount(TRANSFER_AMOUNT);
-        Assert.assertEquals(transferPage.amountField(), Integer.toString(TRANSFER_AMOUNT));
+        same("transfer amount", transferPage.amountField(), Integer.toString(TRANSFER_AMOUNT));
         transferPage.chooseAccounts(checkingId, savingsId);
-        Assert.assertEquals(transferPage.selectedFromAccount(), checkingId);
-        Assert.assertEquals(transferPage.selectedToAccount(), savingsId);
+        same("transfer from account", transferPage.selectedFromAccount(), checkingId);
+        same("transfer to account", transferPage.selectedToAccount(), savingsId);
         transferPage.submit();
-        Assert.assertEquals(transferPage.amountResult(), Money.format(TRANSFER_AMOUNT));
-        Assert.assertEquals(transferPage.fromAccountResult(), checkingId);
-        Assert.assertEquals(transferPage.toAccountResult(), savingsId);
+        same("transfer confirmation amount", transferPage.amountResult(), Money.format(TRANSFER_AMOUNT));
+        same("transfer confirmation from account", transferPage.fromAccountResult(), checkingId);
+        same("transfer confirmation to account", transferPage.toAccountResult(), savingsId);
 
         accountsPage.open();
         List<String> accountsAfterTransfer = accountsPage.accountIds();
-        Assert.assertTrue(accountsAfterTransfer.contains(checkingId));
-        Assert.assertTrue(accountsAfterTransfer.contains(savingsId));
+        check("checking account is listed after the transfer", accountsAfterTransfer.contains(checkingId));
+        check("savings account is listed after the transfer", accountsAfterTransfer.contains(savingsId));
         double checkingAfter = accountsPage.balanceOf(checkingId);
         double savingsAfter = accountsPage.balanceOf(savingsId);
         logBalances("after", checkingId, checkingAfter, savingsId, savingsAfter);
-        Assert.assertEquals(Money.toCents(checkingAfter), Money.toCents(checkingBefore - TRANSFER_AMOUNT));
-        Assert.assertEquals(Money.toCents(savingsAfter), Money.toCents(savingsBefore + TRANSFER_AMOUNT));
+        same("checking balance decreased by the transfer",
+                Money.toCents(checkingAfter), Money.toCents(checkingBefore - TRANSFER_AMOUNT));
+        same("savings balance increased by the transfer",
+                Money.toCents(savingsAfter), Money.toCents(savingsBefore + TRANSFER_AMOUNT));
 
         // Opening the savings account already posts "Funds Transfer Sent/Received"
         // for the minimum deposit, so the amount has to match as well.
         String amountText = Money.format(TRANSFER_AMOUNT);
         activityPage.open(checkingId);
+        same("checking activity account", activityPage.accountIdShown(), checkingId);
         assertTransaction(activityPage.rows(), "Funds Transfer Sent", amountText, 1);
         activityPage.open(savingsId);
+        same("savings activity account", activityPage.accountIdShown(), savingsId);
         assertTransaction(activityPage.rows(), "Funds Transfer Received", amountText, 2);
     }
 
     private void typeAndCheck(RegisterPage page, String css, String value) {
         page.type(css, value);
-        Assert.assertEquals(page.valueOf(css), value);
+        same("typed " + css, page.valueOf(css), value);
+    }
+
+    private void same(String step, Object actual, Object expected) {
+        note(String.valueOf(expected).equals(String.valueOf(actual)), step, String.valueOf(expected), String.valueOf(actual));
+        Assert.assertEquals(actual, expected, step);
+    }
+
+    private void different(String step, Object actual, Object other) {
+        note(!String.valueOf(other).equals(String.valueOf(actual)), step, "not " + other, String.valueOf(actual));
+        Assert.assertNotEquals(actual, other, step);
+    }
+
+    private void check(String step, boolean condition) {
+        note(condition, step, "true", String.valueOf(condition));
+        Assert.assertTrue(condition, step);
+    }
+
+    private void note(boolean passed, String step, String expected, String actual) {
+        String result = passed ? "PASS" : "FAIL";
+        checks.add(new String[] {result, step, expected, actual});
+        Reporter.log(result + " | " + step + " | expected [" + expected + "] actual [" + actual + "]", true);
+    }
+
+    private void writeAssertionReport() {
+        StringBuilder html = new StringBuilder();
+        html.append("<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>Assertions</title></head><body>");
+        html.append("<h1>Assertions</h1><table border=\"1\" cellpadding=\"6\">");
+        html.append("<tr><th>Result</th><th>Check</th><th>Expected</th><th>Actual</th></tr>");
+        for (String[] row : checks) {
+            String color = "PASS".equals(row[0]) ? "#d9f2d9" : "#f8d0d0";
+            html.append("<tr style=\"background:").append(color).append("\">");
+            for (String cell : row) {
+                html.append("<td>").append(escape(cell)).append("</td>");
+            }
+            html.append("</tr>");
+        }
+        html.append("</table></body></html>");
+        try {
+            Files.createDirectories(ASSERTION_REPORT.getParent());
+            Files.writeString(ASSERTION_REPORT, html.toString(), StandardCharsets.UTF_8);
+        } catch (IOException ex) {
+            LOG.warning("could not write assertion report: " + ex.getMessage());
+        }
+    }
+
+    private String escape(String text) {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private void logBalances(String when, String checkingId, double checking, String savingsId, double savings) {
@@ -159,7 +218,7 @@ public class FundTransferTest {
 
     /** columns: 0 description, 1 debit, 2 credit */
     private void assertTransaction(List<String[]> rows, String description, String amountText, int amountColumn) {
-        Assert.assertFalse(rows.isEmpty(), "transaction table should have rows");
+        check("transaction table should have rows", !rows.isEmpty());
         List<String> seen = new ArrayList<>();
         boolean matched = false;
         for (String[] row : rows) {
@@ -168,6 +227,7 @@ public class FundTransferTest {
                 matched = true;
             }
         }
+        note(matched, description + " " + amountText, amountText, matched ? amountText : String.join(" | ", seen));
         Assert.assertTrue(matched,
                 "missing \"" + description + "\" " + amountText + ". Saw: " + String.join(" | ", seen));
     }
