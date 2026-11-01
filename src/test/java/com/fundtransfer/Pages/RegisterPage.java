@@ -1,6 +1,6 @@
 package com.fundtransfer.pages;
 
-import com.fundtransfer.support.Customer;
+import com.fundtransfer.pages.Customer;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.support.ui.ExpectedConditions;
