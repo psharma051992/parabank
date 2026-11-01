@@ -1,8 +1,8 @@
 package com.fundtransfer.pages;
 
-import com.fundtransfer.support.Customer;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
@@ -24,32 +24,49 @@ public class RegisterPage {
         driver.get(URL);
     }
 
-    public void register(Customer customer) {
-        type("[id='customer.firstName']", customer.firstName);
-        type("[id='customer.lastName']", customer.lastName);
-        type("[id='customer.address.street']", customer.street);
-        type("[id='customer.address.city']", customer.city);
-        type("[id='customer.address.state']", customer.state);
-        type("[id='customer.address.zipCode']", customer.zipCode);
-        type("[id='customer.phoneNumber']", customer.phone);
-        type("[id='customer.ssn']", customer.ssn);
-        type("[id='customer.username']", customer.username);
-        type("[id='customer.password']", customer.password);
-        type("#repeatedPassword", customer.password);
+    public boolean formIsOpen() {
+        return driver.findElement(By.cssSelector("[id='customer.firstName']")).isDisplayed();
+    }
+
+    public void type(String css, String value) {
+        WebElement field = driver.findElement(By.cssSelector(css));
+        field.clear();
+        field.sendKeys(value);
+    }
+
+    public String valueOf(String css) {
+        return driver.findElement(By.cssSelector(css)).getAttribute("value");
+    }
+
+    public void submit() {
         driver.findElement(By.cssSelector("input[value='Register']")).click();
     }
 
+    public boolean usernameTaken() {
+        By taken = By.cssSelector("[id='customer.username.errors']");
+        By heading = By.cssSelector("#rightPanel h1.title");
+        wait.until(driver -> !driver.findElements(taken).isEmpty() || headingSaysWelcome(heading));
+        return !driver.findElements(taken).isEmpty();
+    }
+
+    private boolean headingSaysWelcome(By heading) {
+        for (WebElement element : driver.findElements(heading)) {
+            if (element.getText().contains("Welcome")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public String welcomeHeading() {
-        return wait.until(ExpectedConditions.visibilityOfElementLocated(By.cssSelector("#rightPanel h1.title")))
-                .getText()
-                .trim();
+        // The signup page already has this heading, and its text is "Signing up is easy!".
+        // Wait until registration replaces that text with "Welcome {username}".
+        By heading = By.cssSelector("#rightPanel h1.title");
+        wait.until(ExpectedConditions.textToBePresentInElementLocated(heading, "Welcome"));
+        return driver.findElement(heading).getText().trim();
     }
 
     public String panelText() {
         return driver.findElement(By.id("rightPanel")).getText();
-    }
-
-    private void type(String css, String value) {
-        driver.findElement(By.cssSelector(css)).sendKeys(value);
     }
 }

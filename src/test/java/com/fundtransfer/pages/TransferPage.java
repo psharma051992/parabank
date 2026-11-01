@@ -18,15 +18,38 @@ public class TransferPage {
         this.wait = new WebDriverWait(driver, Duration.ofSeconds(60));
     }
 
-    public void send(int amount, String fromAccountId, String toAccountId) {
+    public void open() {
         driver.findElement(By.linkText("Transfer Funds")).click();
         wait.until(ExpectedConditions.numberOfElementsToBeMoreThan(By.cssSelector("#fromAccountId option"), 0));
+    }
 
+    public boolean formIsOpen() {
+        return driver.findElement(By.id("amount")).isDisplayed();
+    }
+
+    public void enterAmount(int amount) {
         driver.findElement(By.id("amount")).sendKeys(Integer.toString(amount));
+    }
+
+    public String amountField() {
+        return driver.findElement(By.id("amount")).getAttribute("value").trim();
+    }
+
+    public void chooseAccounts(String fromAccountId, String toAccountId) {
         new Select(driver.findElement(By.id("fromAccountId"))).selectByValue(fromAccountId);
         new Select(driver.findElement(By.id("toAccountId"))).selectByValue(toAccountId);
-        driver.findElement(By.cssSelector("#transferForm input[type='submit']")).click();
+    }
 
+    public String selectedFromAccount() {
+        return new Select(driver.findElement(By.id("fromAccountId"))).getFirstSelectedOption().getAttribute("value").trim();
+    }
+
+    public String selectedToAccount() {
+        return new Select(driver.findElement(By.id("toAccountId"))).getFirstSelectedOption().getAttribute("value").trim();
+    }
+
+    public void submit() {
+        driver.findElement(By.cssSelector("#transferForm input[type='submit']")).click();
         wait.until(ExpectedConditions.visibilityOfElementLocated(
                 By.xpath("//h1[normalize-space()='Transfer Complete!']")));
     }

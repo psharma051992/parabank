@@ -7,6 +7,7 @@ import com.fundtransfer.pages.RegisterPage;
 import com.fundtransfer.pages.TransferPage;
 import com.fundtransfer.support.Customer;
 import com.fundtransfer.support.Money;
+import com.fundtransfer.support.RegistrationExcel;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
@@ -50,10 +51,10 @@ public class FundTransferTest {
 
     @Test
     public void newCustomerTransfersFundsBetweenTheirAccounts() {
-        String username = "alex" + System.currentTimeMillis();
-        Customer customer = new Customer(
-                "Alex", "Turner", "12 Oak Street", "Austin", "TX", "78701",
-                "5125550148", "123-45-6789", username, "pass123");
+        Customer customer = RegistrationExcel.nextCustomer();
+        String username = customer.username;
+        Reporter.log("registration data: " + customer.firstName + " " + customer.lastName
+                + " | " + username, true);
 
         RegisterPage registerPage = new RegisterPage(driver);
         AccountsPage accountsPage = new AccountsPage(driver);
@@ -62,7 +63,29 @@ public class FundTransferTest {
         ActivityPage activityPage = new ActivityPage(driver);
 
         registerPage.open();
-        registerPage.register(customer);
+        Assert.assertTrue(registerPage.formIsOpen(), "register form should be open");
+
+        typeAndCheck(registerPage, "[id='customer.firstName']", customer.firstName);
+        typeAndCheck(registerPage, "[id='customer.lastName']", customer.lastName);
+        typeAndCheck(registerPage, "[id='customer.address.street']", customer.street);
+        typeAndCheck(registerPage, "[id='customer.address.city']", customer.city);
+        typeAndCheck(registerPage, "[id='customer.address.state']", customer.state);
+        typeAndCheck(registerPage, "[id='customer.address.zipCode']", customer.zipCode);
+        typeAndCheck(registerPage, "[id='customer.phoneNumber']", customer.phone);
+        typeAndCheck(registerPage, "[id='customer.ssn']", customer.ssn);
+        typeAndCheck(registerPage, "[id='customer.username']", username);
+        typeAndCheck(registerPage, "[id='customer.password']", customer.password);
+        typeAndCheck(registerPage, "#repeatedPassword", customer.password);
+
+        registerPage.submit();
+        if (registerPage.usernameTaken()) {
+            username = RegistrationExcel.freshUsername("user");
+            Reporter.log("username was already used, retrying as " + username, true);
+            typeAndCheck(registerPage, "[id='customer.username']", username);
+            typeAndCheck(registerPage, "[id='customer.password']", customer.password);
+            typeAndCheck(registerPage, "#repeatedPassword", customer.password);
+            registerPage.submit();
+        }
         Assert.assertEquals(registerPage.welcomeHeading(), "Welcome " + username);
         Assert.assertTrue(
                 registerPage.panelText().contains("Your account was created successfully. You are now logged in."),
@@ -73,25 +96,46 @@ public class FundTransferTest {
         Assert.assertEquals(accountsAfterRegister.size(), 1, "a new customer gets one checking account");
         String checkingId = accountsAfterRegister.get(0);
 
-        String savingsId = openAccountPage.openSavingsFundedFrom(checkingId);
+        openAccountPage.open();
+        Assert.assertTrue(openAccountPage.formIsOpen(), "open-account form should be open");
+        openAccountPage.chooseSavingsFundedFrom(checkingId);
+        Assert.assertEquals(openAccountPage.selectedType(), "SAVINGS");
+        Assert.assertEquals(openAccountPage.selectedFromAccount(), checkingId);
+        openAccountPage.submit();
+        String savingsId = openAccountPage.newAccountId();
         Assert.assertNotEquals(savingsId, checkingId);
         Assert.assertEquals(openAccountPage.resultHeading(), "Account Opened!");
 
         accountsPage.open();
+        List<String> accountsBeforeTransfer = accountsPage.accountIds();
+        Assert.assertTrue(accountsBeforeTransfer.contains(checkingId), "checking account should still be listed");
+        Assert.assertTrue(accountsBeforeTransfer.contains(savingsId), "new savings account should be listed");
         double checkingBefore = accountsPage.balanceOf(checkingId);
         double savingsBefore = accountsPage.balanceOf(savingsId);
         logBalances("before", checkingId, checkingBefore, savingsId, savingsBefore);
         Assert.assertTrue(checkingBefore > TRANSFER_AMOUNT, "checking account should cover the transfer");
 
-        transferPage.send(TRANSFER_AMOUNT, checkingId, savingsId);
+        transferPage.open();
+        Assert.assertTrue(transferPage.formIsOpen(), "transfer form should be open");
+        transferPage.enterAmount(TRANSFER_AMOUNT);
+        Assert.assertEquals(transferPage.amountField(), Integer.toString(TRANSFER_AMOUNT));
+        transferPage.chooseAccounts(checkingId, savingsId);
+        Assert.assertEquals(transferPage.selectedFromAccount(), checkingId);
+        Assert.assertEquals(transferPage.selectedToAccount(), savingsId);
+        transferPage.submit();
         Assert.assertEquals(transferPage.amountResult(), Money.format(TRANSFER_AMOUNT));
         Assert.assertEquals(transferPage.fromAccountResult(), checkingId);
         Assert.assertEquals(transferPage.toAccountResult(), savingsId);
 
         accountsPage.open();
+        List<String> accountsAfterTransfer = accountsPage.accountIds();
+        Assert.assertTrue(accountsAfterTransfer.contains(checkingId));
+        Assert.assertTrue(accountsAfterTransfer.contains(savingsId));
         double checkingAfter = accountsPage.balanceOf(checkingId);
         double savingsAfter = accountsPage.balanceOf(savingsId);
         logBalances("after", checkingId, checkingAfter, savingsId, savingsAfter);
+        Assert.assertEquals(Money.toCents(checkingAfter), Money.toCents(checkingBefore - TRANSFER_AMOUNT));
+        Assert.assertEquals(Money.toCents(savingsAfter), Money.toCents(savingsBefore + TRANSFER_AMOUNT));
 
         // Opening the savings account already posts "Funds Transfer Sent/Received"
         // for the minimum deposit, so the amount has to match as well.
@@ -100,9 +144,11 @@ public class FundTransferTest {
         assertTransaction(activityPage.rows(), "Funds Transfer Sent", amountText, 1);
         activityPage.open(savingsId);
         assertTransaction(activityPage.rows(), "Funds Transfer Received", amountText, 2);
+    }
 
-        Assert.assertEquals(Money.toCents(checkingAfter), Money.toCents(checkingBefore - TRANSFER_AMOUNT));
-        Assert.assertEquals(Money.toCents(savingsAfter), Money.toCents(savingsBefore + TRANSFER_AMOUNT));
+    private void typeAndCheck(RegisterPage page, String css, String value) {
+        page.type(css, value);
+        Assert.assertEquals(page.valueOf(css), value);
     }
 
     private void logBalances(String when, String checkingId, double checking, String savingsId, double savings) {

@@ -19,15 +19,34 @@ public class OpenAccountPage {
         this.wait = new WebDriverWait(driver, Duration.ofSeconds(60));
     }
 
-    public String openSavingsFundedFrom(String fromAccountId) {
+    public void open() {
         driver.findElement(By.linkText("Open New Account")).click();
         // The from-account dropdown is empty until the customer's accounts come back.
         wait.until(ExpectedConditions.numberOfElementsToBeMoreThan(By.cssSelector("#fromAccountId option"), 0));
+    }
 
+    public boolean formIsOpen() {
+        return driver.findElement(By.id("type")).isDisplayed();
+    }
+
+    public void chooseSavingsFundedFrom(String fromAccountId) {
         new Select(driver.findElement(By.id("type"))).selectByVisibleText("SAVINGS");
         new Select(driver.findElement(By.id("fromAccountId"))).selectByValue(fromAccountId);
-        driver.findElement(By.cssSelector("input[value='Open New Account']")).click();
+    }
 
+    public String selectedType() {
+        return new Select(driver.findElement(By.id("type"))).getFirstSelectedOption().getText().trim();
+    }
+
+    public String selectedFromAccount() {
+        return new Select(driver.findElement(By.id("fromAccountId"))).getFirstSelectedOption().getAttribute("value").trim();
+    }
+
+    public void submit() {
+        driver.findElement(By.cssSelector("input[value='Open New Account']")).click();
+    }
+
+    public String newAccountId() {
         WebElement newAccount = wait.until(ExpectedConditions.visibilityOfElementLocated(By.id("newAccountId")));
         wait.until(driver -> !newAccount.getText().trim().isEmpty());
         return newAccount.getText().trim();
